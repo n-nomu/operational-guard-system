@@ -12,9 +12,6 @@ import {
   Trash2,
   MessageSquare,
   ArrowLeftRight,
-  Settings,
-  Save,
-  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -23,13 +20,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -40,14 +30,6 @@ import {
 } from '@/components/ui/table';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
   getShifts,
   setShifts,
   getHolidays,
@@ -55,7 +37,6 @@ import {
   updateHoliday,
   getBudgetConfig,
   getStaff,
-  setStaff,
   getShiftSwaps,
 } from '@/lib/storage';
 import { formatCurrency } from '@/lib/currency';
@@ -94,12 +75,6 @@ export function StaffPortal({
   const [error, setError] = useState('');
   const budgetConfig = getBudgetConfig();
 
-  // Settings dialog state
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [emergencyContact, setEmergencyContact] = useState('');
-  const [staffLang, setStaffLang] = useState<Language>(lang);
-
   // Bulk submission state
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [startTime, setStartTime] = useState(openTime);
@@ -110,16 +85,7 @@ export function StaffPortal({
   useEffect(() => {
     setLocalHolidays(getHolidays());
     setLocalShifts(getShifts());
-    
-    // Load staff settings
-    const staff = getStaff();
-    const currentStaff = staff.find(s => s.id === session.staffId);
-    if (currentStaff) {
-      setPhoneNumber(currentStaff.phoneNumber || '');
-      setEmergencyContact(currentStaff.emergencyContact || '');
-      setStaffLang(currentStaff.language || lang);
-    }
-  }, [session.staffId, lang]);
+  }, []);
 
   // Update default times when operating hours change
   useEffect(() => {
@@ -146,25 +112,9 @@ export function StaffPortal({
     })
     .sort((a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime());
 
-  // 営業時間内かチェック（跨日対応）
-  const isWithinBusinessHours = (time: string, open: string, close: string) => {
-    const toMinutes = (t: string) => {
-      const [h, m] = t.split(':').map(Number);
-      return h * 60 + m;
-    };
-    
-    const t = toMinutes(time);
-    const openMin = toMinutes(open);
-    const closeMin = toMinutes(close);
-    
-    // 営業時間が跨日するか（例：22:00-06:00）
-    if (closeMin < openMin) {
-      // 22:00-24:00 または 00:00-06:00 の範囲内か
-      return (t >= openMin && t < 1440) || (t >= 0 && t <= closeMin);
-    }
-    
-    // 通常営業（09:00-18:00など）
-    return t >= openMin && t <= closeMin;
+  // Validate time against operating hours
+  const isValidTime = (time: string) => {
+    return time >= openTime && time <= closeTime;
   };
 
   // Get next 14 days for date selection
@@ -214,21 +164,14 @@ export function StaffPortal({
 
     // Validate times against operating hours
     if (!isHoliday) {
-      if (!isWithinBusinessHours(startTime, openTime, closeTime) || 
-          !isWithinBusinessHours(endTime, openTime, closeTime)) {
+      if (!isValidTime(startTime) || !isValidTime(endTime)) {
         setError(lang === 'ja' 
           ? `シフト時間は営業時間内(${openTime}〜${closeTime})でなければなりません`
           : `Shift times must be within operating hours (${openTime} - ${closeTime})`);
         return;
       }
 
-      // シフト時間が跨日するか判定
-      const startMin = parseInt(startTime.split(':')[0]) * 60 + parseInt(startTime.split(':')[1]);
-      const endMin = parseInt(endTime.split(':')[0]) * 60 + parseInt(endTime.split(':')[1]);
-      const shiftOvernight = endMin < startMin;
-
-      // 跨日シフトの場合は許可（例：23:00-01:00）
-      if (!shiftOvernight && startTime >= endTime) {
+      if (startTime >= endTime) {
         setError(lang === 'ja' ? '終了時間は開始時間より後でなければなりません' : 'End time must be after start time');
         return;
       }
@@ -259,12 +202,7 @@ export function StaffPortal({
       // Submit as shift requests
       const [startH, startM] = startTime.split(':').map(Number);
       const [endH, endM] = endTime.split(':').map(Number);
-      
-      // シフト時間が跨日する場合の計算
-      let hours = (endH + endM / 60) - (startH + startM / 60);
-      if (hours < 0) {
-        hours += 24; // 翌日に跨る場合
-      }
+      const hours = (endH + endM / 60) - (startH + startM / 60);
 
       const newShifts: Shift[] = selectedDates.map(dateStr => ({
         id: crypto.randomUUID(),
@@ -289,21 +227,6 @@ export function StaffPortal({
     setHolidayReason('');
     setSubmitSuccess(true);
     setTimeout(() => setSubmitSuccess(false), 3000);
-    onRefresh?.();
-  };
-
-  // Save personal settings
-  const handleSaveSettings = () => {
-    if (!currentStaff) return;
-    
-    const updatedStaff = staff.map(s => 
-      s.id === session.staffId 
-        ? { ...s, phoneNumber, emergencyContact, language: staffLang }
-        : s
-    );
-    
-    setStaff(updatedStaff);
-    setIsSettingsOpen(false);
     onRefresh?.();
   };
 
@@ -355,33 +278,21 @@ export function StaffPortal({
     onRefresh?.();
   };
 
-  // Use staff's personal language if available
-  const displayLang = currentStaff?.language || lang;
-
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
-            <Calendar className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold text-foreground">
-              {session.isAdmin ? (displayLang === 'ja' ? 'スタッフポータル (管理者)' : 'Staff Portal (Admin View)') : `${t('welcome', displayLang)}, ${session.staffName}`}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {session.isAdmin ? (displayLang === 'ja' ? 'リクエスト管理' : 'Manage requests') : t('submitAvailability', displayLang)}
-            </p>
-          </div>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
+          <Calendar className="w-5 h-5 text-primary" />
         </div>
-        
-        {!session.isAdmin && (
-          <Button variant="outline" onClick={() => setIsSettingsOpen(true)} className="gap-2">
-            <Settings className="w-4 h-4" />
-            {displayLang === 'ja' ? '設定' : 'Settings'}
-          </Button>
-        )}
+        <div>
+          <h2 className="text-xl font-semibold text-foreground">
+            {session.isAdmin ? (lang === 'ja' ? 'スタッフポータル (管理者)' : 'Staff Portal (Admin View)') : `${t('welcome', lang)}, ${session.staffName}`}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {session.isAdmin ? (lang === 'ja' ? 'リクエスト管理' : 'Manage requests') : t('submitAvailability', lang)}
+          </p>
+        </div>
       </div>
 
       {/* Manager Messages Display (Staff Dashboard) */}
@@ -390,9 +301,9 @@ export function StaffPortal({
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2 text-primary">
               <MessageSquare className="w-4 h-4" />
-              {t('managerMessage', displayLang)}
+              {t('managerMessage', lang)}
             </CardTitle>
-            <CardDescription>{displayLang === 'ja' ? 'マネージャーからのメッセージ' : 'Messages from your manager'}</CardDescription>
+            <CardDescription>{lang === 'ja' ? 'マネージャーからのメッセージ' : 'Messages from your manager'}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
@@ -400,7 +311,7 @@ export function StaffPortal({
                 <div key={m.id} className="p-3 rounded-lg bg-card border border-border">
                   <p className="text-sm text-foreground">{m.text}</p>
                   <p className="text-xs text-muted-foreground mt-2">
-                    {new Date(m.createdAt).toLocaleString(displayLang === 'ja' ? 'ja-JP' : 'en-US')}
+                    {new Date(m.createdAt).toLocaleString(lang === 'ja' ? 'ja-JP' : 'en-US')}
                   </p>
                 </div>
               ))}
@@ -410,7 +321,7 @@ export function StaffPortal({
       )}
 
       {/* My Swap Requests */}
-      {!session.isAdmin && <MySwapRequests session={session} lang={displayLang} />}
+      {!session.isAdmin && <MySwapRequests session={session} lang={lang} />}
 
       {/* Staff Submission Form (Not shown to admin) */}
       {!session.isAdmin && (
@@ -418,9 +329,9 @@ export function StaffPortal({
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2 text-foreground">
               <Send className="w-4 h-4 text-primary" />
-              {displayLang === 'ja' ? '勤務可能日を申請' : 'Submit Availability'}
+              {lang === 'ja' ? '勤務可能日を申請' : 'Submit Availability'}
             </CardTitle>
-            <CardDescription>{displayLang === 'ja' ? '日付を選択してシフトまたは休暇を申請' : 'Select dates and submit your work or holiday request'}</CardDescription>
+            <CardDescription>{lang === 'ja' ? '日付を選択してシフトまたは休暇を申請' : 'Select dates and submit your work or holiday request'}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Operating Hours Info */}
@@ -428,11 +339,11 @@ export function StaffPortal({
               <div className="flex items-center gap-2 text-sm">
                 <Clock className="w-4 h-4 text-primary" />
                 <span className="text-foreground font-medium">
-                  {displayLang === 'ja' ? '営業時間' : 'Operating Hours'}: {openTime} - {closeTime}
+                  {lang === 'ja' ? '営業時間' : 'Operating Hours'}: {openTime} - {closeTime}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {displayLang === 'ja' ? 'シフト申請はこの時間内に限られます' : 'Shift requests must be within these hours'}
+                {lang === 'ja' ? 'シフト申請はこの時間内に限られます' : 'Shift requests must be within these hours'}
               </p>
             </div>
 
@@ -440,7 +351,7 @@ export function StaffPortal({
               <Alert className="border-green-500/50 bg-green-500/10">
                 <CheckCircle className="w-4 h-4 text-green-500" />
                 <AlertDescription className="text-green-500">
-                  {displayLang === 'ja' ? '申請が送信されました！' : 'Request submitted successfully!'}
+                  {lang === 'ja' ? '申請が送信されました！' : 'Request submitted successfully!'}
                 </AlertDescription>
               </Alert>
             )}
@@ -461,13 +372,13 @@ export function StaffPortal({
               />
               <Label htmlFor="holiday-mode" className="flex items-center gap-2 text-foreground">
                 <Palmtree className="w-4 h-4" />
-                {displayLang === 'ja' ? '休暇申請' : 'Request Holiday/Time Off'}
+                {lang === 'ja' ? '休暇申請' : 'Request Holiday/Time Off'}
               </Label>
             </div>
 
             {/* Date Selection Grid */}
             <div className="space-y-2">
-              <Label className="text-foreground">{displayLang === 'ja' ? '日付を選択（複数選択可）' : 'Select Date(s) - Bulk Submit Enabled'}</Label>
+              <Label className="text-foreground">{lang === 'ja' ? '日付を選択（複数選択可）' : 'Select Date(s) - Bulk Submit Enabled'}</Label>
               <div className="grid grid-cols-7 gap-2">
                 {nextDays.map((date) => {
                   const dateStr = formatLocalDate(date);
@@ -498,7 +409,7 @@ export function StaffPortal({
               </div>
               {selectedDates.length > 0 && (
                 <p className="text-sm text-muted-foreground">
-                  {selectedDates.length} {displayLang === 'ja' ? '日選択中' : 'date(s) selected'}
+                  {selectedDates.length} {lang === 'ja' ? '日選択中' : 'date(s) selected'}
                 </p>
               )}
             </div>
@@ -507,7 +418,7 @@ export function StaffPortal({
             {!isHoliday && (
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-foreground">{displayLang === 'ja' ? '開始時間' : 'Start Time'}</Label>
+                  <Label className="text-foreground">{lang === 'ja' ? '開始時間' : 'Start Time'}</Label>
                   <Input
                     type="time"
                     value={startTime}
@@ -518,7 +429,7 @@ export function StaffPortal({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-foreground">{displayLang === 'ja' ? '終了時間' : 'End Time'}</Label>
+                  <Label className="text-foreground">{lang === 'ja' ? '終了時間' : 'End Time'}</Label>
                   <Input
                     type="time"
                     value={endTime}
@@ -534,11 +445,11 @@ export function StaffPortal({
             {/* Holiday Reason (only if holiday) */}
             {isHoliday && (
               <div className="space-y-2">
-                <Label className="text-foreground">{displayLang === 'ja' ? '休暇理由' : 'Reason for Time Off'}</Label>
+                <Label className="text-foreground">{lang === 'ja' ? '休暇理由' : 'Reason for Time Off'}</Label>
                 <Textarea
                   value={holidayReason}
                   onChange={(e) => setHolidayReason(e.target.value)}
-                  placeholder={displayLang === 'ja' ? '理由を入力してください...' : 'Please describe your reason...'}
+                  placeholder={lang === 'ja' ? '理由を入力してください...' : 'Please describe your reason...'}
                   rows={3}
                 />
               </div>
@@ -550,7 +461,7 @@ export function StaffPortal({
               className="gap-2"
             >
               <Send className="w-4 h-4" />
-              {displayLang === 'ja' 
+              {lang === 'ja' 
                 ? `${selectedDates.length > 1 ? `${selectedDates.length}件` : ''}申請を送信` 
                 : `Submit ${selectedDates.length > 1 ? `${selectedDates.length} Requests` : 'Request'}`}
             </Button>
@@ -564,15 +475,15 @@ export function StaffPortal({
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2 text-foreground">
               <Clock className="w-4 h-4 text-primary" />
-              {displayLang === 'ja' ? 'あなたの今後のシフト' : 'Your Upcoming Shifts'}
+              {lang === 'ja' ? 'あなたの今後のシフト' : 'Your Upcoming Shifts'}
             </CardTitle>
-            <CardDescription>{displayLang === 'ja' ? '今後7日間（公開済み）' : 'Next 7 days (published schedule)'}</CardDescription>
+            <CardDescription>{lang === 'ja' ? '今後7日間（公開済み）' : 'Next 7 days (published schedule)'}</CardDescription>
           </CardHeader>
           <CardContent>
             {upcomingShifts.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>{displayLang === 'ja' ? '今後7日間に公開済みシフトはありません' : 'No published shifts for the next 7 days'}</p>
+                <p>{lang === 'ja' ? '今後7日間に公開済みシフトはありません' : 'No published shifts for the next 7 days'}</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -590,11 +501,11 @@ export function StaffPortal({
                     >
                       <div>
                         <div className="font-medium flex items-center gap-2 text-foreground">
-                          {dayName}, {shiftDate.toLocaleDateString(displayLang === 'ja' ? 'ja-JP' : 'en-US')}
-                          {isToday && <Badge className="text-xs">{displayLang === 'ja' ? '今日' : 'Today'}</Badge>}
+                          {dayName}, {shiftDate.toLocaleDateString(lang === 'ja' ? 'ja-JP' : 'en-US')}
+                          {isToday && <Badge className="text-xs">{lang === 'ja' ? '今日' : 'Today'}</Badge>}
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          {shift.startTime} - {shift.endTime} ({(shift.actualHours ?? shift.hours).toFixed(1)} {displayLang === 'ja' ? '時間' : 'hours'})
+                          {shift.startTime} - {shift.endTime} ({(shift.actualHours ?? shift.hours).toFixed(1)} {lang === 'ja' ? '時間' : 'hours'})
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -606,7 +517,7 @@ export function StaffPortal({
                           session={session}
                           shift={shift}
                           onSuccess={handleSwapSuccess}
-                          lang={displayLang}
+                          lang={lang}
                         />
                       </div>
                     </div>
@@ -622,23 +533,23 @@ export function StaffPortal({
       {!session.isAdmin && myShifts.filter(s => s.status === 'pending').length > 0 && (
         <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-base text-foreground">{displayLang === 'ja' ? '保留中の申請' : 'My Pending Requests'}</CardTitle>
-            <CardDescription>{displayLang === 'ja' ? '管理者が確認する前にキャンセル可能' : 'You can cancel these before admin confirms'}</CardDescription>
+            <CardTitle className="text-base text-foreground">{lang === 'ja' ? '保留中の申請' : 'My Pending Requests'}</CardTitle>
+            <CardDescription>{lang === 'ja' ? '管理者が確認する前にキャンセル可能' : 'You can cancel these before admin confirms'}</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-foreground">{displayLang === 'ja' ? '日付' : 'Date'}</TableHead>
-                  <TableHead className="text-foreground">{displayLang === 'ja' ? '時間' : 'Time'}</TableHead>
-                  <TableHead className="text-foreground">{displayLang === 'ja' ? 'ステータス' : 'Status'}</TableHead>
-                  <TableHead className="text-right text-foreground">{displayLang === 'ja' ? '操作' : 'Action'}</TableHead>
+                  <TableHead className="text-foreground">{lang === 'ja' ? '日付' : 'Date'}</TableHead>
+                  <TableHead className="text-foreground">{lang === 'ja' ? '時間' : 'Time'}</TableHead>
+                  <TableHead className="text-foreground">{lang === 'ja' ? 'ステータス' : 'Status'}</TableHead>
+                  <TableHead className="text-right text-foreground">{lang === 'ja' ? '操作' : 'Action'}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {myShifts.filter(s => s.status === 'pending').map((shift) => (
                   <TableRow key={shift.id}>
-                    <TableCell className="text-foreground">{parseLocalDate(shift.date).toLocaleDateString(displayLang === 'ja' ? 'ja-JP' : 'en-US')}</TableCell>
+                    <TableCell className="text-foreground">{parseLocalDate(shift.date).toLocaleDateString(lang === 'ja' ? 'ja-JP' : 'en-US')}</TableCell>
                     <TableCell className="text-foreground">{shift.startTime} - {shift.endTime}</TableCell>
                     <TableCell>{getShiftStatusBadge(shift.status)}</TableCell>
                     <TableCell className="text-right">
@@ -663,22 +574,22 @@ export function StaffPortal({
       {!session.isAdmin && myHolidays.length > 0 && (
         <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-base text-foreground">{displayLang === 'ja' ? '休暇申請' : 'My Holiday Requests'}</CardTitle>
-            <CardDescription>{myHolidays.length} {displayLang === 'ja' ? '件' : 'request(s)'}</CardDescription>
+            <CardTitle className="text-base text-foreground">{lang === 'ja' ? '休暇申請' : 'My Holiday Requests'}</CardTitle>
+            <CardDescription>{myHolidays.length} {lang === 'ja' ? '件' : 'request(s)'}</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-foreground">{displayLang === 'ja' ? '日付' : 'Date'}</TableHead>
-                  <TableHead className="text-foreground">{displayLang === 'ja' ? '理由' : 'Reason'}</TableHead>
-                  <TableHead className="text-foreground">{displayLang === 'ja' ? 'ステータス' : 'Status'}</TableHead>
+                  <TableHead className="text-foreground">{lang === 'ja' ? '日付' : 'Date'}</TableHead>
+                  <TableHead className="text-foreground">{lang === 'ja' ? '理由' : 'Reason'}</TableHead>
+                  <TableHead className="text-foreground">{lang === 'ja' ? 'ステータス' : 'Status'}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {myHolidays.map((holiday) => (
                   <TableRow key={holiday.id}>
-                    <TableCell className="text-foreground">{parseLocalDate(holiday.date).toLocaleDateString(displayLang === 'ja' ? 'ja-JP' : 'en-US')}</TableCell>
+                    <TableCell className="text-foreground">{parseLocalDate(holiday.date).toLocaleDateString(lang === 'ja' ? 'ja-JP' : 'en-US')}</TableCell>
                     <TableCell className="max-w-[200px] truncate text-foreground">{holiday.reason}</TableCell>
                     <TableCell>{getStatusBadge(holiday.status)}</TableCell>
                   </TableRow>
@@ -693,24 +604,24 @@ export function StaffPortal({
       {session.isAdmin && pendingHolidays.length > 0 && (
         <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-base text-foreground">{displayLang === 'ja' ? '休暇承認待ち' : 'Pending Holiday Approvals'}</CardTitle>
-            <CardDescription>{pendingHolidays.length} {displayLang === 'ja' ? '件の申請' : 'request(s) pending'}</CardDescription>
+            <CardTitle className="text-base text-foreground">{lang === 'ja' ? '休暇承認待ち' : 'Pending Holiday Approvals'}</CardTitle>
+            <CardDescription>{pendingHolidays.length} {lang === 'ja' ? '件の申請' : 'request(s) pending'}</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-foreground">{displayLang === 'ja' ? 'スタッフ' : 'Staff'}</TableHead>
-                  <TableHead className="text-foreground">{displayLang === 'ja' ? '日付' : 'Date'}</TableHead>
-                  <TableHead className="text-foreground">{displayLang === 'ja' ? '理由' : 'Reason'}</TableHead>
-                  <TableHead className="text-right text-foreground">{displayLang === 'ja' ? '操作' : 'Actions'}</TableHead>
+                  <TableHead className="text-foreground">{lang === 'ja' ? 'スタッフ' : 'Staff'}</TableHead>
+                  <TableHead className="text-foreground">{lang === 'ja' ? '日付' : 'Date'}</TableHead>
+                  <TableHead className="text-foreground">{lang === 'ja' ? '理由' : 'Reason'}</TableHead>
+                  <TableHead className="text-right text-foreground">{lang === 'ja' ? '操作' : 'Actions'}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {pendingHolidays.map((holiday) => (
                   <TableRow key={holiday.id}>
                     <TableCell className="font-medium text-foreground">{holiday.staffName}</TableCell>
-                    <TableCell className="text-foreground">{parseLocalDate(holiday.date).toLocaleDateString(displayLang === 'ja' ? 'ja-JP' : 'en-US')}</TableCell>
+                    <TableCell className="text-foreground">{parseLocalDate(holiday.date).toLocaleDateString(lang === 'ja' ? 'ja-JP' : 'en-US')}</TableCell>
                     <TableCell className="max-w-[200px] truncate text-foreground">{holiday.reason}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex gap-2 justify-end">
@@ -736,65 +647,6 @@ export function StaffPortal({
             </Table>
           </CardContent>
         </Card>
-      )}
-
-      {/* Settings Dialog */}
-      {!session.isAdmin && (
-        <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-          <DialogContent className="sm:max-w-[500px]">
-            <DialogHeader>
-              <DialogTitle className="text-foreground">{displayLang === 'ja' ? '個人設定' : 'Personal Settings'}</DialogTitle>
-              <DialogDescription>{displayLang === 'ja' ? '連絡先と言語設定' : 'Contact info and language'}</DialogDescription>
-            </DialogHeader>
-            
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label className="text-foreground">{displayLang === 'ja' ? '自分の電話番号' : 'My Phone Number'}</Label>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                  placeholder="09012345678"
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label className="text-foreground">{displayLang === 'ja' ? '緊急連絡先' : 'Emergency Contact'}</Label>
-                <Input
-                  type="text"
-                  value={emergencyContact}
-                  onChange={(e) => setEmergencyContact(e.target.value)}
-                  placeholder={displayLang === 'ja' ? '家族の名前と電話番号' : 'Family name and phone'}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label className="text-foreground">{displayLang === 'ja' ? '表示言語' : 'Display Language'}</Label>
-                <Select value={staffLang} onValueChange={(v: Language) => setStaffLang(v)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ja">日本語</SelectItem>
-                    <SelectItem value="en">English</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsSettingsOpen(false)}>
-                <X className="w-4 h-4" />
-              </Button>
-              <Button onClick={handleSaveSettings}>
-                <Save className="w-4 h-4" />
-                {displayLang === 'ja' ? '保存' : 'Save'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       )}
     </div>
   );

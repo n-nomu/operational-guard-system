@@ -12,6 +12,10 @@ export interface StaffMember {
   currency: Currency;
   skills: SkillType[];
   createdAt: string;
+  phoneNumber?: string;
+  emergencyContact?: string;
+  language?: Language;
+  isActive?: boolean; //
 }
 
 export type ShiftStatus = 'pending' | 'confirmed' | 'modified';
@@ -98,6 +102,15 @@ export interface AppSettings {
   language: Language;
   openTime: string;
   closeTime: string;
+  wageRules?: WageRule[];
+}
+export interface WageRule {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  bonus: number;
+  isActive: boolean;
 }
 
 export interface ShiftSwapRequest {

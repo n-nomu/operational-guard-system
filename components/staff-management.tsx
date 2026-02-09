@@ -33,8 +33,8 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { getStaff, setStaff, deleteStaff as removeStaff } from '@/lib/storage';
 import { formatCurrency } from '@/lib/currency';
-import { ADMIN_PIN, SKILL_TYPES, type StaffMember, type Currency, type SkillType } from '@/lib/types';
-import { t, type Language } from '@/lib/i18n';
+import { ADMIN_PIN, SKILL_TYPES, type StaffMember, type Currency, type SkillType, type Language } from '@/lib/types';
+import { t } from '@/lib/i18n';
 
 interface StaffManagementProps {
   lang?: Language;
@@ -53,6 +53,9 @@ export function StaffManagement({ lang = 'ja' }: StaffManagementProps) {
     baseWage: '',
     currency: 'JPY' as Currency,
     skills: [] as SkillType[],
+    phoneNumber: '',
+    emergencyContact: '',
+    language: 'ja' as Language,
   });
 
   useEffect(() => {
@@ -61,7 +64,6 @@ export function StaffManagement({ lang = 'ja' }: StaffManagementProps) {
 
   // PIN validation - auto-lowercase and limit to 4 chars (alphanumeric)
   const handlePinChange = (value: string) => {
-    // Auto-lowercase and limit to 4 alphanumeric characters
     const sanitized = value.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4);
     setFormData({ ...formData, pin: sanitized });
   };
@@ -90,7 +92,7 @@ export function StaffManagement({ lang = 'ja' }: StaffManagementProps) {
   };
 
   const resetForm = () => {
-    setFormData({ name: '', pin: '', baseWage: '', currency: 'JPY', skills: [] });
+    setFormData({ name: '', pin: '', baseWage: '', currency: 'JPY', skills: [], phoneNumber: '', emergencyContact: '', language: 'ja' });
     setError('');
     setEditingId(null);
   };
@@ -120,6 +122,9 @@ export function StaffManagement({ lang = 'ja' }: StaffManagementProps) {
       currency: formData.currency,
       skills: formData.skills,
       createdAt: new Date().toISOString(),
+      phoneNumber: formData.phoneNumber || undefined,
+      emergencyContact: formData.emergencyContact || undefined,
+      language: formData.language || undefined,
     };
 
     const updated = [...staff, newStaff];
@@ -137,6 +142,9 @@ export function StaffManagement({ lang = 'ja' }: StaffManagementProps) {
       baseWage: (member.baseWage ?? 0).toString(),
       currency: member.currency || 'JPY',
       skills: member.skills || [],
+      phoneNumber: member.phoneNumber || '',
+      emergencyContact: member.emergencyContact || '',
+      language: member.language || 'ja',
     });
     setError('');
   };
@@ -162,6 +170,9 @@ export function StaffManagement({ lang = 'ja' }: StaffManagementProps) {
             baseWage: parseFloat(formData.baseWage) || 0,
             currency: formData.currency,
             skills: formData.skills,
+            phoneNumber: formData.phoneNumber || undefined,
+            emergencyContact: formData.emergencyContact || undefined,
+            language: formData.language || undefined,
           }
         : s
     );
@@ -273,6 +284,39 @@ export function StaffManagement({ lang = 'ja' }: StaffManagementProps) {
                   </Select>
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label>{lang === 'ja' ? '電話番号' : 'Phone Number'}</Label>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  value={formData.phoneNumber}
+                  onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value.replace(/[^0-9]/g, '') })}
+                  placeholder="09012345678"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{lang === 'ja' ? '緊急連絡先' : 'Emergency Contact'}</Label>
+                <Input
+                  value={formData.emergencyContact}
+                  onChange={(e) => setFormData({ ...formData, emergencyContact: e.target.value })}
+                  placeholder={lang === 'ja' ? '家族の名前と電話番号' : 'Family name and phone'}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{lang === 'ja' ? '言語' : 'Language'}</Label>
+                <Select
+                  value={formData.language}
+                  onValueChange={(val) => setFormData({ ...formData, language: val as Language })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ja">日本語</SelectItem>
+                    <SelectItem value="en">English</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex gap-2 pt-4">
                 <Button className="flex-1" onClick={handleAdd}>
                   Add Staff Member
@@ -312,6 +356,9 @@ export function StaffManagement({ lang = 'ja' }: StaffManagementProps) {
                   <TableHead>PIN</TableHead>
                   <TableHead>{lang === 'ja' ? 'スキル' : 'Skills'}</TableHead>
                   <TableHead>{lang === 'ja' ? '基本時給' : 'Base Wage'}</TableHead>
+                  <TableHead>{lang === 'ja' ? '電話番号' : 'Phone'}</TableHead>
+                  <TableHead>{lang === 'ja' ? '緊急連絡先' : 'Emergency'}</TableHead>
+                  <TableHead>{lang === 'ja' ? '言語' : 'Lang'}</TableHead>
                   <TableHead className="text-right">{lang === 'ja' ? '操作' : 'Actions'}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -391,6 +438,50 @@ export function StaffManagement({ lang = 'ja' }: StaffManagementProps) {
                         </div>
                       ) : (
                         formatCurrency(member.baseWage, member.currency) + '/hr'
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {editingId === member.id ? (
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={formData.phoneNumber}
+                          onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value.replace(/[^0-9]/g, '') })}
+                          className="h-8 w-32"
+                          placeholder="090..."
+                        />
+                      ) : (
+                        <span className="text-sm text-muted-foreground">{member.phoneNumber || '-'}</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {editingId === member.id ? (
+                        <Input
+                          value={formData.emergencyContact}
+                          onChange={(e) => setFormData({ ...formData, emergencyContact: e.target.value })}
+                          className="h-8 w-32"
+                          placeholder={lang === 'ja' ? '家族' : 'Family'}
+                        />
+                      ) : (
+                        <span className="text-sm text-muted-foreground truncate max-w-[100px]">{member.emergencyContact || '-'}</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {editingId === member.id ? (
+                        <Select
+                          value={formData.language}
+                          onValueChange={(val) => setFormData({ ...formData, language: val as Language })}
+                        >
+                          <SelectTrigger className="h-8 w-20">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ja">JA</SelectItem>
+                            <SelectItem value="en">EN</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Badge variant="outline" className="text-xs">{member.language || 'ja'}</Badge>
                       )}
                     </TableCell>
                     <TableCell className="text-right">

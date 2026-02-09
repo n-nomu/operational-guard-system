@@ -86,6 +86,7 @@ import { formatCurrency } from '@/lib/currency';
 import { t, type Language } from '@/lib/i18n';
 import {
   parseLocalDate,
+  formatLocalDate,
   type Session,
   type TabType,
   type AppSettings,
@@ -325,7 +326,7 @@ export function Dashboard({ session, onLogout }: DashboardProps) {
   };
 
   const toggleWageRule = (ruleId: string) => {
-    const newRules = settings.wageRules.map(rule => 
+    const newRules = (settings.wageRules || []).map(rule => 
       rule.id === ruleId 
         ? { ...rule, isActive: !rule.isActive } 
         : rule
@@ -334,7 +335,7 @@ export function Dashboard({ session, onLogout }: DashboardProps) {
   };
 
   const deleteWageRule = (ruleId: string) => {
-    const newRules = settings.wageRules.filter(rule => rule.id !== ruleId);
+    const newRules = (settings.wageRules || []).filter(rule => rule.id !== ruleId);
     updateSettings({ wageRules: newRules });
   };
 
@@ -525,6 +526,49 @@ export function Dashboard({ session, onLogout }: DashboardProps) {
       case 'dashboard':
         return (
           <div className="space-y-6">
+            {/* Today's Overview */}
+            <Card className="bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/20">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-primary" />
+                  {lang === 'ja' ? '今日の概要' : "Today's Overview"}
+                </CardTitle>
+                <CardDescription>
+                  {new Date().toLocaleDateString(lang === 'ja' ? 'ja-JP' : 'en-US', { 
+                    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+                  })}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {(() => {
+                  const today = new Date();
+                  const todayStr = formatLocalDate(today);
+                  const todayShifts = shifts.filter(s => s.date === todayStr && s.status === 'confirmed');
+                  const todayHours = todayShifts.reduce((sum, s) => sum + (s.actualHours ?? s.hours), 0);
+                  const todayCost = todayShifts.reduce((sum, s) => sum + s.cost, 0);
+                  
+                  return (
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="text-center">
+                        <div className="text-3xl font-bold text-foreground">{todayShifts.length}</div>
+                        <div className="text-sm text-muted-foreground">{lang === 'ja' ? 'シフト数' : 'Shifts'}</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-3xl font-bold text-foreground">{todayHours.toFixed(1)}h</div>
+                        <div className="text-sm text-muted-foreground">{lang === 'ja' ? '勤務時間' : 'Hours'}</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-3xl font-bold text-foreground">
+                          {formatCurrency(todayCost, budgetConfig.currency)}
+                        </div>
+                        <div className="text-sm text-muted-foreground">{lang === 'ja' ? '人件費' : 'Cost'}</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+
             {/* Quick Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <Card className="bg-card border-border">
@@ -596,23 +640,6 @@ export function Dashboard({ session, onLogout }: DashboardProps) {
               </Card>
             </div>
 
-            {/* Formula Visualization (Finance Mini) */}
-            <Card className="bg-card border-border">
-              <CardContent className="py-4">
-                <div className="text-sm font-mono text-muted-foreground mb-2">
-                  {t('formula', lang)}: ({t('totalHours', lang)} x {t('avgWage', lang)}) / {t('revenue', lang)}
-                </div>
-                <div className="text-lg text-foreground">
-                  ({formatNum(totalHours)} x {formatCurrency(laborCalc.avgWage, budgetConfig.currency)}) / {formatCurrency(budgetConfig.weeklyRevenue, budgetConfig.currency)} =
-                  <span className={`font-bold ml-2 ${
-                    laborCalc.laborPercent > budgetConfig.targetLaborPercent ? 'text-destructive' : 'text-green-500'
-                  }`}>
-                    {laborCalc.laborPercent.toFixed(1)}%
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Pending Items */}
             {(pendingHolidays > 0 || pendingShifts > 0 || pendingSwaps.length > 0) && (
               <div className="flex flex-wrap gap-4">
@@ -634,55 +661,7 @@ export function Dashboard({ session, onLogout }: DashboardProps) {
               </div>
             )}
 
-            {/* Shift Swap Approval */}
-            {pendingSwaps.length > 0 && (
-              <Card className="bg-card border-border">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2 text-foreground">
-                    <ArrowLeftRight className="w-4 h-4 text-primary" />
-                    {lang === 'ja' ? 'シフト交代承認待ち' : 'Pending Shift Swaps'}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-foreground">{lang === 'ja' ? '依頼者' : 'From'}</TableHead>
-                        <TableHead className="text-foreground">{lang === 'ja' ? '相手' : 'To'}</TableHead>
-                        <TableHead className="text-foreground">{lang === 'ja' ? 'シフト' : 'Shift'}</TableHead>
-                        <TableHead className="text-foreground">{lang === 'ja' ? '理由' : 'Reason'}</TableHead>
-                        <TableHead className="text-right text-foreground">{lang === 'ja' ? '操作' : 'Actions'}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {pendingSwaps.map(swap => (
-                        <TableRow key={swap.id}>
-                          <TableCell className="text-foreground">{swap.fromStaffName}</TableCell>
-                          <TableCell className="text-foreground">{swap.toStaffName}</TableCell>
-                          <TableCell className="text-foreground">
-                            <div>{parseLocalDate(swap.shiftDate).toLocaleDateString(lang === 'ja' ? 'ja-JP' : 'en-US')}</div>
-                            <div className="text-xs text-muted-foreground">{swap.shiftTime}</div>
-                          </TableCell>
-                          <TableCell className="max-w-[150px] truncate text-muted-foreground">{swap.reason || '-'}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex gap-2 justify-end">
-                              <Button size="sm" onClick={() => handleApproveSwap(swap.id)} className="bg-green-600 hover:bg-green-700">
-                                <Check className="w-4 h-4" />
-                              </Button>
-                              <Button size="sm" variant="destructive" onClick={() => handleRejectSwap(swap.id)}>
-                                <X className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Manager Message Section with shift deadline picker */}
+            {/* Manager Message Section */}
             <Card className="bg-card border-border">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2 text-foreground">
@@ -704,7 +683,6 @@ export function Dashboard({ session, onLogout }: DashboardProps) {
                     className="min-h-[60px]"
                   />
                 </div>
-                {/* Shift submission deadline picker */}
                 <div className="grid grid-cols-2 gap-2 items-end">
                   <div className="space-y-1">
                     <Label className="text-xs text-foreground">
@@ -757,30 +735,24 @@ export function Dashboard({ session, onLogout }: DashboardProps) {
               </CardContent>
             </Card>
 
-            {/* Weekly Calendar */}
-            <WeeklyCalendar
-              weekStart={weekStart}
-              onWeekChange={setWeekStart}
-              refreshTrigger={refreshTrigger}
-              isAdmin={true}
-              lang={lang}
-              openTime={settings.openTime}
-              closeTime={settings.closeTime}
-            />
+            {/* Link to Schedule */}
+            <Button
+              variant="outline"
+              className="w-full gap-2"
+              onClick={() => setActiveTab('schedule')}
+            >
+              <Calendar className="w-4 h-4" />
+              {lang === 'ja' ? 'スケジュール管理へ' : 'Go to Schedule Management'}
+            </Button>
           </div>
         );
-
       case 'schedule':
         return (
           <WeeklyCalendar
-            weekStart={weekStart}
-            onWeekChange={setWeekStart}
-            refreshTrigger={refreshTrigger}
+          onRefresh={handleRefresh}
             isAdmin={true}
             lang={lang}
-            openTime={settings.openTime}
-            closeTime={settings.closeTime}
-            showAIScheduling={true}
+          
           />
         );
 
@@ -788,7 +760,7 @@ export function Dashboard({ session, onLogout }: DashboardProps) {
         return <StaffManagement lang={lang} />;
 
       case 'finance':
-        return <BudgetControl weekStart={weekStart} refreshTrigger={refreshTrigger} lang={lang} />;
+        return<BudgetControl isAdmin={true} lang={lang} onRefresh={handleRefresh} />
 
       default:
         return null;
@@ -837,7 +809,8 @@ export function Dashboard({ session, onLogout }: DashboardProps) {
                 )}
               </div>
 
-              {/* Settings Dialog */}
+              {/* Settings Dialog - Admin Only */}
+              {session.isAdmin && (
               <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
                 <DialogTrigger asChild>
                   <Button variant="ghost" size="icon">
@@ -895,7 +868,7 @@ export function Dashboard({ session, onLogout }: DashboardProps) {
                         </SelectContent>
                       </Select>
                     </div>
-
+                    
                     {/* Night Shift Settings (from BudgetConfig) */}
                     <div className="space-y-3 pt-4 border-t border-border">
                       <Label className="text-foreground">
@@ -1080,7 +1053,7 @@ export function Dashboard({ session, onLogout }: DashboardProps) {
                   </div>
                 </DialogContent>
               </Dialog>
-
+)}
               <Button variant="ghost" size="icon" onClick={handleLogout}>
                 <LogOut className="w-4 h-4" />
               </Button>
